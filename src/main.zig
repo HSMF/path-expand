@@ -84,7 +84,7 @@ fn matches_flag(arg: []const u8, short: ?u8, long: ?[]const u8) bool {
     return false;
 }
 
-fn parseArgs(args: [][:0]const u8) !?Args {
+fn parseArgs(args: [][:0]const u8) !Args {
     var flags: Flags = .{};
     var i: usize = 1;
     var path_var = std.ArrayList([]const u8).init(allocator);
@@ -114,7 +114,8 @@ fn parseArgs(args: [][:0]const u8) !?Args {
         if (matches_flag(arg, 't', "type")) {
             i += 1;
             if (i == args.len) {
-                return null;
+                print("missing argument after .{s}\n", .{arg});
+                return error.ParseError;
             }
 
             const typ = std.mem.span(args[i]);
@@ -146,13 +147,15 @@ fn parseArgs(args: [][:0]const u8) !?Args {
                 flags.display_file_types.unix_domain_socket = true;
                 continue;
             }
-            return null;
+            print("missing argument after .{s}\n", .{arg});
+            return error.ParseError;
         }
 
         if (matches_flag(arg, 'n', "no-type")) {
             i += 1;
             if (i == args.len) {
-                return null;
+                print("missing argument after .{s}\n", .{arg});
+                return error.ParseError;
             }
 
             const typ = std.mem.span(args[i]);
@@ -184,7 +187,8 @@ fn parseArgs(args: [][:0]const u8) !?Args {
                 flags.display_file_types.unix_domain_socket = false;
                 continue;
             }
-            return null;
+            print("missing argument after .{s}\n", .{arg});
+            return error.ParseError;
         }
 
         if (eql(arg, "--")) {
@@ -195,6 +199,10 @@ fn parseArgs(args: [][:0]const u8) !?Args {
 
         if (arg.len == 0) {
             continue;
+        }
+        if (arg[0] == '-') {
+            print("unknown option: `{s}`\n", .{arg});
+            return error.ParseError;
         }
         try path_var.append(arg);
     }
@@ -288,7 +296,10 @@ fn printPath(stdout: anytype, pathvar: []const u8, flags: Flags) !void {
     defer allocator.free(basepath_buf);
 
     while (parts.next()) |path| {
-        var dir = openDirNormalized(path, .{}, basepath_buf) catch continue;
+        var dir = openDirNormalized(path, .{}, basepath_buf) catch {
+            print("could not open {s}\n", .{path});
+            continue;
+        };
         defer dir.dir.close();
         var walker = dir.dir.iterate();
         while (try walker.next()) |entry| {
@@ -298,7 +309,7 @@ fn printPath(stdout: anytype, pathvar: []const u8, flags: Flags) !void {
 }
 
 fn printHelp(progname: []const u8) void {
-    print("Usage: {s} [-lh] <PATH>...\n\n", .{progname});
+    print("Usage: {s} [OPTIONS] <PATH>...\n\n", .{progname});
     print("  <PATH>...              Colon (':') separated list of paths\n\n", .{});
     print("  -h, --help             Show this message\n", .{});
     // print("  -l, --list             List all resolved files\n", .{});
@@ -320,9 +331,14 @@ pub fn main() !void {
     const argv = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, argv);
 
-    const args = try parseArgs(argv) orelse {
-        printHelp(std.mem.span(argv[0]));
-        std.os.exit(1);
+    const args = parseArgs(argv) catch |err| switch (err) {
+        error.ParseError => {
+            printHelp(std.mem.span(argv[0]));
+            std.os.exit(1);
+        },
+        else => {
+            return err;
+        },
     };
     if (args.flags.help) {
         printHelp(std.mem.span(argv[0]));
