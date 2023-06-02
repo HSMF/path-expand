@@ -216,6 +216,38 @@ fn parseArgs(args: [][:0]const u8) !Args {
     return .{ .flags = flags, .path_var = path_var };
 }
 
+fn remove_prefix(path: []const u8) []const u8 {
+    var i: usize = 0;
+    while (i < path.len) {
+        if (!std.fs.path.isSep(path[i])) {
+            break;
+        }
+        i += 1;
+    }
+    return path[i..path.len];
+}
+
+fn remove_suffix(path: []const u8) []const u8 {
+    var i: usize = path.len - 1;
+    while (i >= 0) {
+        if (!std.fs.path.isSep(path[i])) {
+            break;
+        }
+        i -= 1;
+    }
+    return path[0 .. i + 1];
+}
+
+pub fn join(path: []const u8, subpath: []const u8, buf: []u8) []u8 {
+    const base = remove_suffix(path);
+    const sub = remove_prefix(subpath);
+    const sep = std.fs.path.sep;
+    @memcpy(buf.ptr, base.ptr, base.len);
+    buf[base.len] = sep;
+    @memcpy(buf.ptr + base.len + 1, sub.ptr, sub.len);
+    return buf[0 .. base.len + sub.len + 1];
+}
+
 pub fn openDirNormalized(path: []const u8, flags: std.fs.Dir.OpenDirOptions, buf: []u8) !OpenedDir {
     if (path.len == 0) {
         std.os.abort();
@@ -224,8 +256,6 @@ pub fn openDirNormalized(path: []const u8, flags: std.fs.Dir.OpenDirOptions, buf
     if (path.len >= 2 and path[0] == '~' and path[1] == '/') {
         // expand $HOME
         const home = std.os.getenv("HOME") orelse std.os.abort();
-        // var buf = try allocator.alloc(u8, home.len + path.len - 1);
-        // defer allocator.free(buf);
 
         @memcpy(buf.ptr, home.ptr, home.len);
         @memcpy(buf.ptr + home.len, path.ptr + 1, path.len - 1);
